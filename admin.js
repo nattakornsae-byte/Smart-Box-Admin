@@ -1,4 +1,3 @@
-
 /*
  * หลังบ้าน Smart Pillbox – หน้าจอทั้งหมด
  * ต้องโหลด admin-core.js ก่อนไฟล์นี้ (ดู admin.html)
@@ -58,7 +57,8 @@ function viewLogin(msg) {
 var connectMsg = '';
 function viewConnect() {
   $app.innerHTML = '<div class="center-wrap"><form class="card auth" id="connectForm" novalidate><div class="auth-head">' + logo(56) +
-    '<h1>เชื่อมต่อ ThingsBoard</h1><p class="muted">ทำครั้งแรกในเครื่องนี้ ใช้บัญชี Tenant ของกลุ่ม</p></div>' +
+    '<h1>เชื่อมต่อ ThingsBoard</h1><p class="muted">ใช้อีเมลและรหัสผ่านที่ล็อกอินเว็บ <strong>' + esc(TB.host().replace(/^https?:\/\//i, '')) +
+    '</strong><br>ทำครั้งแรกในเครื่องนี้ครั้งเดียว</p></div>' +
     (connectMsg ? '<p class="note warn">' + esc(connectMsg) + '</p>' : '') +
     '<label for="ce">อีเมลบัญชี Tenant</label><input class="input" id="ce" type="email" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" required>' +
     '<label for="cp">รหัสผ่าน ThingsBoard</label><input class="input" id="cp" type="password" autocomplete="current-password" required>' +
@@ -202,8 +202,8 @@ function linkBox(name, link, note) {
 
 function elderCard(c, users, devs) {
   var cid = c.id.id;
-  var mine = devs.filter(function (d) { return assigned(d) && d.customerId.id === cid; });
-  var others = devs.filter(function (d) { return !(assigned(d) && d.customerId.id === cid); });
+  var mine = devs.filter(function (d) { return ownerCid(d) === cid; });
+  var others = devs.filter(function (d) { return ownerCid(d) !== cid; });
   var devList = mine.length ? '<ul class="list">' + mine.map(function (d) {
     return '<li><strong>' + esc(d.name) + '</strong><button class="btn small" type="button" data-act="unassign" data-id="' +
       esc(d.id.id) + '" data-confirm="ยืนยันยกเลิก">ยกเลิกการผูก</button></li>';
@@ -211,7 +211,7 @@ function elderCard(c, users, devs) {
   var opts = others.map(function (d) {
     var busy = assigned(d);
     return '<option value="' + esc(d.id.id) + '"' + (busy ? ' disabled' : '') + '>' + esc(d.name) +
-      (busy ? ' (ผูกกับ ' + esc(d.customerTitle || 'คนอื่น') + ' อยู่ ต้องยกเลิกก่อน)' : '') + '</option>';
+      (busy ? ' (ผูกกับ ' + esc(elderOf(d) || 'คนอื่น') + ' อยู่ ต้องยกเลิกก่อน)' : '') + '</option>';
   }).join('');
   var bind = others.length ? '<form class="inline" data-form="assign" data-cid="' + esc(cid) + '" data-title="' + esc(c.title) + '">' +
     '<select class="input" name="device" aria-label="เลือกตู้ที่จะผูก"><option value="">เลือกตู้ที่จะผูก</option>' + opts + '</select>' +
@@ -384,6 +384,7 @@ async function viewAccount(seq) {
     '<dt>ออกจากระบบอัตโนมัติ</dt><dd>เมื่อไม่ได้ใช้งาน ' + idleMin() + ' นาที</dd></dl>' +
     '<div><button class="btn" type="button" data-act="logout">ออกจากระบบ</button></div></section>' +
     '<section class="card"><h2>ThingsBoard</h2><dl class="kv"><dt>เซิร์ฟเวอร์</dt><dd>' + esc(TB.host()) + '</dd>' +
+    '<dt>รุ่น</dt><dd>' + (isPE() ? 'Professional (ThingsBoard Cloud)' : 'Community Edition') + '</dd>' +
     '<dt>บัญชี</dt><dd>' + (me ? esc(me.email) + ' (Tenant)' : '–') + '</dd></dl>' +
     '<p class="small muted">เครื่องนี้จำการเชื่อมต่อไว้ประมาณ 1 สัปดาห์ ถ้าใช้คอมเครื่องส่วนกลาง ให้กดตัดการเชื่อมต่อทุกครั้งที่ใช้เสร็จ</p>' +
     '<div><button class="btn danger" type="button" data-act="disconnect" data-confirm="ยืนยันตัดการเชื่อมต่อ">ตัดการเชื่อมต่อ ThingsBoard</button></div></section>' +
@@ -495,7 +496,7 @@ var ACTIONS = {
   'del-elder': function (b) {
     return run(b, async function () {
       var devs = await API.devices();
-      var mine = devs.filter(function (d) { return assigned(d) && d.customerId.id === b.dataset.id; });
+      var mine = devs.filter(function (d) { return ownerCid(d) === b.dataset.id; });
       for (var i = 0; i < mine.length; i++) {
         await API.unassign(mine[i].id.id);
         try { await API.setLabel(mine[i].id.id, ''); } catch (e) { if (e.expired) throw e; }

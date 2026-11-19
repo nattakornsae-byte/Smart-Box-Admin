@@ -11,8 +11,9 @@
 'use strict';
 
 window.ADMIN_CONFIG = {
-  // ที่อยู่ ThingsBoard ที่ใช้ในแล็บ
-  TB_HOST: 'https://demo.thingsboard.io',
+  // ที่อยู่ ThingsBoard ของกลุ่ม (บัญชีอยู่บน ThingsBoard Cloud)
+  // ถ้าบัญชีอยู่เซิร์ฟเวอร์ยุโรป ใช้ 'https://eu.thingsboard.cloud'
+  TB_HOST: 'https://thingsboard.cloud',
 
   // ชื่อผู้ใช้หลังบ้าน
   ADMIN_USER: 'smartbox',
@@ -67,8 +68,20 @@ function dt(ts) { return ts ? dShort(ts) + ' ' + hhmm(ts) : '–'; }
 function isTrue(v) { return v === true || v === 'true'; }
 function byId(id) { return document.getElementById(id); }
 function idleMin() { return Number(CFG.IDLE_MIN) || 30; }
-function assigned(d) { return !!(d.customerId && d.customerId.id && d.customerId.id !== NULL_ID); }
-function elderOf(d) { return assigned(d) ? (d.customerTitle || d.label || '') : ''; }
+// ThingsBoard Cloud เป็นรุ่น Professional (PE) คำสั่งผูกตู้และสร้างบัญชีผู้ดูแลต่างจากรุ่น Community (CE) ที่ใช้ในแล็บ
+// เลือกรุ่นจากที่อยู่เซิร์ฟเวอร์ หรือกำหนด TB_EDITION: 'PE' หรือ 'CE' ใน ADMIN_CONFIG เอง
+function isPE() {
+  var e = String(CFG.TB_EDITION || '').toUpperCase();
+  if (e === 'PE' || e === 'CE') return e === 'PE';
+  return /(^|\.)thingsboard\.cloud$/i.test(TB.host().replace(/^https?:\/\//i, '').split(/[\/:]/)[0]);
+}
+// id ของผู้สูงอายุ (customer) ที่เป็นเจ้าของตู้ ถ้ายังไม่ผูกจะได้ ''
+function ownerCid(d) {
+  if (d.ownerId && d.ownerId.entityType) return d.ownerId.entityType === 'CUSTOMER' ? d.ownerId.id : '';
+  return d.customerId && d.customerId.id && d.customerId.id !== NULL_ID ? d.customerId.id : '';
+}
+function assigned(d) { return !!ownerCid(d); }
+function elderOf(d) { return assigned(d) ? (d.customerTitle || d.ownerName || d.label || '') : ''; }
 
 var toastTimer = null;
 function toast(msg, kind) {
@@ -308,6 +321,7 @@ var TB = {
     if (!res.ok) {
       var err = fail(res.status, errorText(res.status));
       try { err.tb = (await res.json()).message || ''; } catch (e) { err.tb = ''; }
+      if (err.tb) err.message += ' – ' + err.tb;
       throw err;
     }
     var text = await res.text();
@@ -319,7 +333,9 @@ var TB = {
 var API = {
   me: function () { return TB.req('GET', '/api/auth/user'); },
   devices: async function () {
-    var p = await TB.req('GET', '/api/tenant/deviceInfos?pageSize=200&page=0&sortProperty=name&sortOrder=ASC');
+    var p = await TB.req('GET', isPE()
+      ? '/api/deviceInfos/all?pageSize=200&page=0&includeCustomers=true&sortProperty=name&sortOrder=ASC'
+      : '/api/tenant/deviceInfos?pageSize=200&page=0&sortProperty=name&sortOrder=ASC');
     return (p && p.data) || [];
   },
   device: function (id) { return TB.req('GET', '/api/device/' + id); },
@@ -354,8 +370,20 @@ var API = {
     var p = await TB.req('GET', '/api/customer/' + cid + '/users?pageSize=200&page=0');
     return (p && p.data) || [];
   },
-  createUser: function (cid, u) {
-    return TB.req('POST', '/api/user?sendActivationMail=false', {
+  createUser: async function (cid, u) {
+    var q = '?sendActivationMail=false';
+    // รุ่น Cloud (PE): ต้องใส่ผู้ดูแลในกลุ่ม Customer Administrators ของผู้สูงอายุคนนั้น ซึ่ง ThingsBoard สร้างให้เองตอนเพิ่มผู้สูงอายุ
+    // กลุ่มนี้มีสิทธิ์ตั้งตารางยาและรับทราบการแจ้งเตือน ถ้าไม่ใส่กลุ่ม บัญชีจะไม่มีสิทธิ์อะไรเลย
+    if (isPE()) {
+      var g;
+      try { g = await TB.req('GET', '/api/entityGroup/CUSTOMER/' + cid + '/USER/' + encodeURIComponent('Customer Administrators')); }
+      catch (e) {
+        if (e.expired || e.status !== 404) throw e;
+        throw fail(404, 'ไม่พบกลุ่ม Customer Administrators ของผู้สูงอายุคนนี้ใน ThingsBoard');
+      }
+      q += '&entityGroupId=' + encodeURIComponent(g.id.id);
+    }
+    return TB.req('POST', '/api/user' + q, {
       email: u.email, firstName: u.firstName, lastName: u.lastName, phone: u.phone,
       authority: 'CUSTOMER_USER', customerId: { id: cid, entityType: 'CUSTOMER' }
     });
@@ -363,8 +391,17 @@ var API = {
   activationLink: function (uid) { return TB.req('GET', '/api/user/' + uid + '/activationLink', undefined, { text: true }); },
   sendActivation: function (email) { return TB.req('POST', '/api/user/sendActivationMail?email=' + encodeURIComponent(email)); },
   deleteUser: function (uid) { return TB.req('DELETE', '/api/user/' + uid); },
-  assign: function (cid, did) { return TB.req('POST', '/api/customer/' + cid + '/device/' + did); },
-  unassign: function (did) { return TB.req('DELETE', '/api/customer/device/' + did); },
+  // ผูกตู้กับผู้สูงอายุ: รุ่น Cloud (PE) ใช้การเปลี่ยนเจ้าของตู้ (Change owner) ส่วนรุ่น CE ใช้ assign
+  assign: function (cid, did) {
+    return isPE() ? TB.req('POST', '/api/owner/CUSTOMER/' + cid + '/DEVICE/' + did, [])
+      : TB.req('POST', '/api/customer/' + cid + '/device/' + did);
+  },
+  unassign: async function (did) {
+    if (!isPE()) return TB.req('DELETE', '/api/customer/device/' + did);
+    var me = await API.me();
+    if (!me || !me.tenantId || !me.tenantId.id) throw fail(0, 'อ่านข้อมูลบัญชี Tenant ไม่ได้ ลองใหม่อีกครั้ง');
+    return TB.req('POST', '/api/owner/TENANT/' + me.tenantId.id + '/DEVICE/' + did, []);
+  },
   alarms: function (status, size) {
     return TB.req('GET', '/api/alarms?searchStatus=' + status + '&pageSize=' + size +
       '&page=0&sortProperty=createdTime&sortOrder=DESC&fetchOriginator=true');
@@ -415,7 +452,7 @@ async function statusOf(dev) {
     ]);
     return {
       dev: dev,
-      online: r[0].active ? isTrue(r[0].active.value) : false,
+      online: r[0].active ? isTrue(r[0].active.value) : isTrue(dev.active),
       last: r[0].lastActivityTime ? Number(r[0].lastActivityTime.value) : null,
       fw: r[1].fw_version ? String(r[1].fw_version.value) : '',
       today: todaySummary(r[2])
