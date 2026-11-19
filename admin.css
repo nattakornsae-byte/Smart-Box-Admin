@@ -152,8 +152,24 @@ details.sub form { margin-top: 8px; }
 .center-wrap { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
 .auth { width: 100%; max-width: 420px; gap: 8px; padding: 26px 24px; }
 .auth label { font-weight: 600; margin-top: 6px; }
-.auth .btn.primary { margin-top: 10px; }
+.auth-form { display: flex; flex-direction: column; gap: 8px; }
+.auth-form > .btn.primary { margin-top: 10px; }
 .auth-head { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; margin-bottom: 8px; }
+.forgot { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--navy-soft); }
+.forgot .inline { margin-top: 0; }
+.forgot .inline .input { max-width: none; }
+.note.ok { background: var(--green-bg); color: var(--green); }
+
+/* ตารางยา */
+.meal.has-err { border-color: #E8A774; }
+.med-list { display: flex; flex-direction: column; gap: 8px; }
+.med-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.med-row .med-name { flex: 1 1 220px; width: auto; min-width: 0; }
+.qty { display: flex; align-items: center; gap: 6px; font-size: 15px; }
+.qty .input { width: 84px; }
+.time-field { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.time-field .input { width: 140px; }
+.field-err { color: var(--orange); font-weight: 600; font-size: 15px; }
 
 /* ข้อความแจ้งชั่วคราว */
 .toast {
