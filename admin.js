@@ -340,7 +340,7 @@ function mealCard(k, v) {
   var meds = medsOf(v);
   if (!meds.length) meds = [{}];
   return '<section class="card meal" data-meal="' + k + '"><div class="row-between"><h2>' + MEAL_TH[k] + '</h2>' +
-    '<label class="time-field"><span>เวลา</span><input class="input" name="time" type="time" value="' + esc(v.time || '') + '" required></label></div>' +
+    '<label class="time-field"><span>เวลา</span><input class="input" name="time" type="time" value="' + esc(v.time || '') + '"></label></div>' +
     '<div class="med-list">' + meds.map(medRow).join('') + '</div>' +
     '<div><button class="btn small" type="button" data-act="add-med">+ เพิ่มยา</button></div>' +
     '<p class="field-err" role="alert" hidden></p></section>';
@@ -373,7 +373,7 @@ async function viewMeds(seq) {
   setBody('<section class="card"><label class="field"><span>ตู้ของผู้สูงอายุ</span><select class="input" data-change="meds-dev">' + opts +
     '</select></label>' + schedStatus(data) + '</section>' +
     '<form class="stack" data-form="meds" data-dev="' + esc(medsDev) + '" novalidate>' +
-    '<p class="small muted">ใส่เวลาให้ครบทุกมื้อและห้ามซ้ำกัน มื้อที่ไม่มียาเว้นชื่อยาว่างไว้ได้ ใส่ยาได้มื้อละ ' + MEDS_MAX + ' รายการ</p>' +
+    '<p class="small muted">มื้อที่มียาต้องใส่เวลาและห้ามซ้ำกับมื้ออื่น มื้อที่ไม่มียาเว้นว่างทั้งเวลาและชื่อยาได้ ตู้จะไม่เตือนมื้อนั้น ใส่ยาได้มื้อละ ' + MEDS_MAX + ' รายการ</p>' +
     MEALS.map(function (k) { return mealCard(k, s[k] || {}); }).join('') +
     '<p class="alert" data-err hidden></p><div><button class="btn primary" type="submit">บันทึกและส่งไปที่ตู้</button></div></form>');
 }
@@ -791,9 +791,6 @@ var FORMS = {
     f.querySelectorAll('[data-meal]').forEach(function (sec) {
       var k = sec.dataset.meal, errs = [], meds = [];
       var t = sec.querySelector('input[name=time]').value.trim();
-      if (!t) errs.push('กรุณากรอกเวลา');
-      else if (seen[t]) errs.push('เวลาซ้ำกับ' + MEAL_TH[seen[t]] + ' เลือกเวลาใหม่');
-      else seen[t] = k;
       sec.querySelectorAll('.med-row').forEach(function (row) {
         var n = row.querySelector('input[name=name]').value.trim();
         var qs = row.querySelector('input[name=qty]').value.trim();
@@ -803,12 +800,17 @@ var FORMS = {
         else if (!qs || !Number.isInteger(q) || q < 1 || q > 20) errs.push('จำนวนเม็ดของ "' + n + '" ต้องเป็นเลข 1–20');
         else meds.push({ name: n, qty: q });
       });
+      // ต้องมีเวลาเฉพาะมื้อที่มียา มื้อที่ไม่มียาบันทึกโดยไม่มีเวลา ตู้จะไม่เตือนมื้อนั้น
+      var hasMeds = meds.length > 0 || errs.length > 0;
+      if (hasMeds && !t) errs.push('มื้อนี้มียา กรุณากรอกเวลา');
+      else if (hasMeds && seen[t]) errs.push('เวลาซ้ำกับ' + MEAL_TH[seen[t]] + ' เลือกเวลาใหม่');
+      else if (hasMeds) seen[t] = k;
       var box = sec.querySelector('.field-err');
       box.textContent = errs.join(' · ');
       box.hidden = !errs.length;
       sec.classList.toggle('has-err', errs.length > 0);
       if (errs.length) bad = true;
-      out[k] = { time: t, med: medText(meds), meds: meds };
+      out[k] = { time: meds.length ? t : '', med: medText(meds), meds: meds };
     });
     if (bad) return showErr(f, 'ยังมีช่องที่ต้องแก้ ดูข้อความสีส้มในแต่ละมื้อ');
     showErr(f, '');
